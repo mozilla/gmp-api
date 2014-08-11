@@ -35,6 +35,7 @@
 #define GMP_VIDEO_CODEC_h_
 
 #include <stdint.h>
+#include <stddef.h>
 
 enum { kGMPPayloadNameSize = 32};
 enum { kGMPMaxSimulcastStreams = 4};
@@ -71,19 +72,48 @@ struct GMPVideoCodecVP8
   bool mDenoisingOn;
   bool mErrorConcealmentOn;
   bool mAutomaticResizeOn;
-  bool mFrameDroppingOn;
-  int32_t mKeyFrameInterval;
+};
+
+// H264 specific
+
+// Needs to match a binary spec for this structure.
+// Note: the mSPS at the end of this structure is variable length.
+struct GMPVideoCodecH264AVCC
+{
+  uint8_t        mVersion; // == 0x01
+  uint8_t        mProfile; // these 3 are profile_level_id
+  uint8_t        mConstraints;
+  uint8_t        mLevel;
+  uint8_t        mLengthSizeMinusOne; // lower 2 bits (== GMPBufferType-1). Top 6 reserved (1's)
+
+  // SPS/PPS will not generally be present for interactive use unless SDP
+  // parameter-sets are used.
+  uint8_t        mNumSPS; // lower 5 bits; top 5 reserved (1's)
+
+  /*** uint8_t   mSPS[];  (Not defined due to compiler warnings and warnings-as-errors ...) **/
+  // Following mNumSPS is a variable number of bytes, which is the SPS and PPS.
+  // Each SPS == 16 bit size, ("N"), then "N" bytes,
+  // then uint8_t mNumPPS, then each PPS == 16 bit size ("N"), then "N" bytes.
+};
+
+// Codec specific data for H.264 decoding/encoding.
+// Cast the "aCodecSpecific" parameter of GMPVideoDecoder::InitDecode() and
+// GMPVideoEncoder::InitEncode() to this structure.
+struct GMPVideoCodecH264
+{
+  uint8_t        mPacketizationMode; // 0 or 1
+  struct GMPVideoCodecH264AVCC mAVCC; // holds a variable-sized struct GMPVideoCodecH264AVCC mAVCC;
 };
 
 enum GMPVideoCodecType
 {
   kGMPVideoCodecVP8,
-  kGMPVideoCodecInvalid // Should always be last.
-};
 
-union GMPVideoCodecUnion
-{
-  GMPVideoCodecVP8 mVP8;
+  // Encoded frames are in AVCC format; NAL length field of 4 bytes, followed
+  // by frame data. May be multiple NALUs per sample. Codec specific extra data
+  // is the AVCC extra data (in AVCC format).
+  kGMPVideoCodecH264,
+  kGMPVideoCodecInvalid // Should always be last.
 };
 
 // Simulcast is when the same stream is encoded multiple times with different
@@ -102,11 +132,19 @@ struct GMPSimulcastStream
 enum GMPVideoCodecMode {
   kGMPRealtimeVideo,
   kGMPScreensharing,
+  kGMPStreamingVideo,
   kGMPCodecModeInvalid // Should always be last.
+};
+
+enum GMPApiVersion {
+  kGMPVersion32 = 1, // leveraging that V32 had mCodecType first, and only supported H264
+  kGMPVersion33 = 33,
 };
 
 struct GMPVideoCodec
 {
+  uint32_t mGMPApiVersion;
+
   GMPVideoCodecType mCodecType;
   char mPLName[kGMPPayloadNameSize]; // Must be NULL-terminated!
   uint32_t mPLType;
@@ -119,7 +157,8 @@ struct GMPVideoCodec
   uint32_t mMinBitrate; // kilobits/sec.
   uint32_t mMaxFramerate;
 
-  GMPVideoCodecUnion mCodecSpecific;
+  bool mFrameDroppingOn;
+  int32_t mKeyFrameInterval;
 
   uint32_t mQPMax;
   uint32_t mNumberOfSimulcastStreams;
@@ -128,7 +167,24 @@ struct GMPVideoCodec
   GMPVideoCodecMode mMode;
 };
 
+// Either single encoded unit, or multiple units separated by 8/16/24/32
+// bit lengths, all with the same timestamp.  Note there is no final 0-length
+// entry; one should check the overall end-of-buffer against where the next
+// length would be.
+enum GMPBufferType {
+  GMP_BufferSingle = 0,
+  GMP_BufferLength8,
+  GMP_BufferLength16,
+  GMP_BufferLength24,
+  GMP_BufferLength32,
+  GMP_BufferInvalid,
+};
+
 struct GMPCodecSpecificInfoGeneric {
+  uint8_t mSimulcastIdx;
+};
+
+struct GMPCodecSpecificInfoH264 {
   uint8_t mSimulcastIdx;
 };
 
@@ -153,6 +209,7 @@ union GMPCodecSpecificInfoUnion
 {
   GMPCodecSpecificInfoGeneric mGeneric;
   GMPCodecSpecificInfoVP8 mVP8;
+  GMPCodecSpecificInfoH264 mH264;
 };
 
 // Note: if any pointers are added to this struct or its sub-structs, it
@@ -161,6 +218,7 @@ union GMPCodecSpecificInfoUnion
 struct GMPCodecSpecificInfo
 {
   GMPVideoCodecType mCodecType;
+  GMPBufferType mBufferType;
   GMPCodecSpecificInfoUnion mCodecSpecific;
 };
 
