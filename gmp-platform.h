@@ -53,6 +53,8 @@ public:
   virtual void Join() = 0; // Deletes object after join completes.
 };
 
+// A re-entrant monitor; can be locked from the same thread multiple times.
+// Must be unlocked the same number of times it's locked.
 class GMPMutex {
 public:
   virtual ~GMPMutex() {}
@@ -69,6 +71,8 @@ typedef GMPErr (*GMPCreateThreadPtr)(GMPThread** aThread);
 typedef GMPErr (*GMPRunOnMainThreadPtr)(GMPTask* aTask);
 typedef GMPErr (*GMPSyncRunOnMainThreadPtr)(GMPTask* aTask);
 typedef GMPErr (*GMPCreateMutexPtr)(GMPMutex** aMutex);
+
+// Call on main thread only.
 typedef GMPErr (*GMPCreateRecordPtr)(const char* aRecordName,
                                      uint32_t aRecordNameSize,
                                      GMPRecord** aOutRecord,
